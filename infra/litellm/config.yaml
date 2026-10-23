@@ -1,0 +1,13 @@
+model_list:
+  - model_name: "chatgpt/*"
+    litellm_params:
+      model: "chatgpt/*"
+    model_info:
+      mode: responses
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false

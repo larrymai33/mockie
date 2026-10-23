@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+.env
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+*.log
+.mockie/
+runner-queue/
+playwright-report/
+test-results/
+.playwright-mcp/
+*.tsbuildinfo
+qa-*.png

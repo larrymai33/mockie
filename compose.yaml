@@ -1,0 +1,197 @@
+name: mockie
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_PATH: ${DATABASE_PATH:-/data/mockie.db}
+      MOCKIE_MODE: ${MOCKIE_MODE:-offline}
+      MOCKIE_MODEL: ${MOCKIE_MODEL:-chatgpt/gpt-5.4}
+      MOCKIE_SESSION_MINUTES: ${MOCKIE_SESSION_MINUTES:-45}
+      LITELLM_BASE_URL: ${LITELLM_BASE_URL:-http://litellm:4000}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?Set LITELLM_MASTER_KEY in .env}
+      RUNNER_QUEUE_PATH: ${RUNNER_QUEUE_PATH:-/queue}
+    volumes:
+      - mockie_data:/data
+      - runner_queue:/queue
+    networks:
+      - backend
+    depends_on:
+      runner:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+        required: false
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+
+  runner:
+    build:
+      context: .
+      dockerfile: apps/runner/Dockerfile
+    restart: unless-stopped
+    init: true
+    user: "0:10001"
+    network_mode: none
+    environment:
+      RUNNER_QUEUE_DIR: ${RUNNER_QUEUE_PATH:-/queue}
+      RUNNER_TIMEOUT_MS: ${RUNNER_TIMEOUT_MS:-4000}
+      RUNNER_OUTPUT_LIMIT_BYTES: ${RUNNER_MAX_OUTPUT_BYTES:-65536}
+      RUNNER_CHILD_UID: 65534
+      RUNNER_CHILD_GID: 65534
+    volumes:
+      - runner_queue:/queue
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m,mode=1777
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - KILL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: 0.50
+    healthcheck:
+      test: [CMD, node, dist/index.js, healthcheck]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+    depends_on:
+      runner-queue-init:
+        condition: service_completed_successfully
+
+  runner-queue-init:
+    image: busybox:1.37
+    user: "0:0"
+    command: [sh, -c, "mkdir -p /queue/jobs /queue/processing /queue/results && chown -R 0:10001 /queue && chmod -R 0770 /queue"]
+    volumes:
+      - runner_queue:/queue
+    restart: "no"
+
+  litellm-auth-init:
+    image: busybox:1.37
+    profiles: [online, login]
+    user: "0:0"
+    command: [sh, -c, "mkdir -p /auth/chatgpt && chown -R 65534:65534 /auth && chmod 0700 /auth/chatgpt"]
+    volumes:
+      - litellm_auth:/auth
+    restart: "no"
+
+  litellm:
+    build:
+      context: infra/litellm
+      args:
+        LITELLM_VERSION: ${LITELLM_VERSION:-1.106.0}
+    profiles: [online]
+    restart: unless-stopped
+    user: "65534:65534"
+    command: [sh, -c, "umask 077; exec litellm --config /config/config.yaml --host 0.0.0.0 --port 4000"]
+    environment:
+      CHATGPT_TOKEN_DIR: /auth/chatgpt
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?Set LITELLM_MASTER_KEY in .env}
+    volumes:
+      - litellm_auth:/auth
+      - ./infra/litellm/config.yaml:/config/config.yaml:ro
+    networks:
+      - backend
+    depends_on:
+      litellm-auth-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=2)"
+      interval: 15s
+      timeout: 4s
+      retries: 8
+      start_period: 30s
+
+  litellm-login:
+    build:
+      context: infra/litellm
+      args:
+        LITELLM_VERSION: ${LITELLM_VERSION:-1.106.0}
+    profiles: [login]
+    user: "65534:65534"
+    stdin_open: true
+    tty: true
+    command:
+      - python
+      - -c
+      - "import os; os.umask(0o077); from litellm.llms.chatgpt.authenticator import Authenticator; Authenticator().get_access_token(); print('ChatGPT login saved to /auth/chatgpt/auth.json')"
+    environment:
+      CHATGPT_TOKEN_DIR: /auth/chatgpt
+    volumes:
+      - litellm_auth:/auth
+    depends_on:
+      litellm-auth-init:
+        condition: service_completed_successfully
+
+  caddy:
+    image: caddy:2.8.4-alpine
+    restart: unless-stopped
+    environment:
+      MOCKIE_HOST: ${MOCKIE_HOST:-mockie.home.arpa}
+    ports:
+      - target: 443
+        published: ${MOCKIE_PORT:-443}
+        host_ip: ${MOCKIE_BIND_IP:?Set MOCKIE_BIND_IP to this host's trusted LAN address}
+        protocol: tcp
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - backend
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, caddy, validate, --config, /etc/caddy/Caddyfile]
+      interval: 15s
+      timeout: 4s
+      retries: 4
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  mockie_data:
+    name: mockie_data
+  litellm_auth:
+    name: litellm_auth
+  caddy_data:
+    name: mockie_caddy_data
+  caddy_config:
+    name: mockie_caddy_config
+  runner_queue:
+    name: mockie_runner_queue
