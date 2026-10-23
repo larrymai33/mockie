@@ -432,10 +432,7 @@ infra/
   caddy/Caddyfile      LAN HTTPS and reverse proxy
   litellm/             Pinned provider image and Responses-mode model routing
 tests/                 Compose/deployment contract tests
-docs/superpowers/specs/ Design specification and operating intent
 compose.yaml           Services, profiles, volumes, isolation, health checks
 .env.example           Deployment defaults; copy to private .env
 Dockerfile             App build and non-root runtime
 ```
-
-The [design specification](docs/superpowers/specs/2026-10-22-mockie-design.md) explains the interview policy, product goals, and boundaries. The implementation and deployment files are the authority for current commands and limits.
