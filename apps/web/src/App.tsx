@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ArrowLeft, ArrowRight, Check, ChevronRight, Clock3, Code2, FileText, Headphones, History, Mic, MicOff, Play, Send, Settings2, Square, Terminal, Volume2, VolumeX, X } from 'lucide-react';
+import { scoringRubric, scoreScale } from '@mockie/core';
 import { api as defaultApi } from './lib/api';
 import { RoomController } from './lib/room';
 import { browserSpeechEngine, SpeechController } from './lib/speech';
@@ -109,7 +110,32 @@ function InterviewRoom({ controller, review, onBack }: { controller: RoomControl
 
 function ScorecardView({ controller, onNew, onReview }: { controller: RoomController; onNew(): void; onReview(): void }) {
   const { session, scorecard } = controller.state;
-  return <main className="scorecard-page"><button className="text-button" onClick={onNew}><ArrowLeft size={15} />Back to practice</button><div className="reflection-heading"><span className="completion-mark"><Check size={24} /></span><p>Practice, reflected.</p><h1>A little reflection.</h1><p>{session?.problem.title} / {session?.language === 'python' ? 'Python 3' : 'JavaScript'} / {session?.durationMinutes} minutes</p></div>{scorecard ? <><p className="score-summary">{scorecard.summary}</p><div className="score-categories">{scorecard.categories.map(category => <section key={category.name}><div><h2>{category.name}</h2><span>{category.score}<small> / 5</small></span></div><div className="score-track"><span style={{ width: `${Math.max(0, Math.min(5, category.score)) * 20}%` }} /></div><p>{category.feedback}</p></section>)}</div><div className="reflection-columns"><section><h2>Carry this forward</h2><ul>{scorecard.strengths.map(item => <li key={item}>{item}</li>)}</ul></section><section><h2>Try next time</h2><ul>{scorecard.improvements.map(item => <li key={item}>{item}</li>)}</ul></section></div></> : <p className="score-summary">This session is saved. Review your code and interview notes below.</p>}<div className="score-actions"><button className="primary" onClick={onNew}>Another little practice<ArrowRight size={17} /></button><button className="secondary" onClick={onReview}>Review session</button></div><p className="score-footnote">Progress comes from showing up. See you in the room.</p></main>;
+  const versioned = scorecard?.rubricVersion === 'senior-swe-v1';
+  const assistanceLabels = { independent: 'Independent', prompted: 'Neutral prompts', guided: 'Substantial guidance', not_observed: 'Not observed' };
+  const evidenceLabels = { code: 'Code', transcript: 'Transcript', run: 'Run output' };
+  const sourceNote = scorecard?.source === 'offline'
+    ? versioned ? 'Scripted offline practice: activity summary only; no competence grades.' : 'Earlier offline activity estimates are not competence grades.'
+    : scorecard?.source === 'fallback'
+      ? versioned ? 'Model assessment was unavailable: saved activity summary only; no competence grades.' : 'Earlier fallback activity estimates are not competence grades.'
+      : scorecard?.source === 'model'
+        ? 'Model assessment based on this session. Treat it as practice feedback, not a hiring decision.'
+        : null;
+  return <main className="scorecard-page"><button className="text-button" onClick={onNew}><ArrowLeft size={15} />Back to practice</button><div className="reflection-heading"><span className="completion-mark"><Check size={24} /></span><p>Practice, reflected.</p><h1>A little reflection.</h1><p>{session?.problem.title} / {session?.language === 'python' ? 'Python 3' : 'JavaScript'} / {session?.durationMinutes} minutes</p></div>{scorecard ? <>
+    <div className="score-context"><p>{versioned ? `Senior SWE coding rubric · ${scorecard.rubricVersion}` : 'Earlier scorecard (unversioned)'}</p>{sourceNote && <p>{sourceNote}</p>}{!versioned && <p>Saved scores use the earlier scoring method and are not calibrated to the current rubric.</p>}</div>
+    <p className="score-summary">{scorecard.summary}</p>
+    <div className="score-categories" role="group" aria-label="Category scores">{scorecard.categories.map(category => <section key={category.name}>
+      <div><h2>{category.name}</h2>{category.score === null ? <span className="score-unassessed">Not assessed</span> : <span>{category.score}<small> / 5</small></span>}</div>
+      {category.score !== null && <div className="score-track" role="meter" aria-label={`${category.name} score`} aria-valuemin={1} aria-valuemax={5} aria-valuenow={category.score}><span style={{ width: `${Math.max(0, Math.min(5, category.score)) * 20}%` }} /></div>}
+      <p>{category.feedback}</p>
+      {category.assistance && <p className="score-assistance">{assistanceLabels[category.assistance]}</p>}
+      {!!category.evidence?.length && <ul className="score-evidence" aria-label={`${category.name} evidence`}>{category.evidence.map((item, index) => <li key={index}><span>{evidenceLabels[item.source]}</span><blockquote>{item.quote}</blockquote></li>)}</ul>}
+    </section>)}</div>
+    {versioned && <details className="rubric-guide"><summary>How scores are assessed</summary><p>Scores reflect evidence from this coding session. Missing evidence means Not assessed, not a low score. Neutral follow-up questions are part of an interview; substantive hints are considered when assessing independence.</p>
+      <ol className="score-scale">{scoreScale.map(item => <li key={item.score}><strong>{item.score}</strong><span>{item.label}</span></li>)}</ol>
+      {scoringRubric.map(category => <section key={category.key}><h2>{category.title}</h2><ol>{scoreScale.map(item => <li key={item.score}><strong>{item.score} · {item.label}</strong><p>{category.anchors[item.score as keyof typeof category.anchors]}</p></li>)}</ol></section>)}
+    </details>}
+    <div className="reflection-columns"><section><h2>Carry this forward</h2><ul>{scorecard.strengths.map(item => <li key={item}>{item}</li>)}</ul></section><section><h2>Try next time</h2><ul>{scorecard.improvements.map(item => <li key={item}>{item}</li>)}</ul></section></div>
+  </> : <p className="score-summary">This session is saved. Review your code and interview notes below.</p>}<div className="score-actions"><button className="primary" onClick={onNew}>Another little practice<ArrowRight size={17} /></button><button className="secondary" onClick={onReview}>Review session</button></div><p className="score-footnote">Progress comes from showing up. See you in the room.</p></main>;
 }
 
 function HistoryView({ sessions, loading, onOpen, onPractice }: { sessions: Session[]; loading: boolean; onOpen(id: string): Promise<void>; onPractice(): void }) {

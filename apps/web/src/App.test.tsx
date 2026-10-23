@@ -1,19 +1,19 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
-import type { AppApi, Session } from './lib/types';
+import type { AppApi, Scorecard, Session } from './lib/types';
 
 const problem = { id: 'two-sum', title: 'Two sum', difficulty: 'Easy', description: 'Given an array of integers, return the indices of two numbers that add up to target.', starterCode: { python: 'def two_sum(nums, target):\n    pass', javascript: 'function twoSum(nums, target) {\n}' }, examples: [{ input: '[2, 7, 11, 15], 9', output: '[0, 1]' }] };
 const scorecard = { summary: 'Your reasoning was clear. Keep exploring edge cases.', overall: 4, categories: [{ name: 'Communication', score: 4, feedback: 'Clear reasoning.' }], strengths: ['Clear reasoning'], improvements: ['Test empty inputs'] };
-function fixture() {
+function fixture(savedScorecard: Scorecard = scorecard) {
   const session: Session = { id: 's1', problem, language: 'python', durationMinutes: 45, mode: 'offline', code: problem.starterCode.python, status: 'active', startedAt: new Date().toISOString(), transcript: [], runs: [] };
   const messages: string[] = [];
   const api: AppApi = {
     problems: async () => [problem], settings: async () => ({ mode: 'offline', model: 'offline' }), saveSettings: async settings => settings,
-    history: async () => [{ ...session, status: 'ended', scorecard }], session: async () => ({ ...session, status: 'ended', scorecard }),
+    history: async () => [{ ...session, status: 'ended', scorecard: savedScorecard }], session: async () => ({ ...session, status: 'ended', scorecard: savedScorecard }),
     start: vi.fn(async options => ({ ...session, language: options.language, mode: options.mode, durationMinutes: options.durationMinutes })),
     updateCode: async () => {}, message: async (_id, text) => { messages.push(text); },
-    run: async () => ({ id: 'r1', stdout: 'answer: 42', stderr: '', exitCode: 0, durationMs: 12 }), end: async () => scorecard,
+    run: async () => ({ id: 'r1', stdout: 'answer: 42', stderr: '', exitCode: 0, durationMs: 12 }), end: async () => savedScorecard,
     subscribe: () => () => {}
   };
   return { api, messages };
@@ -46,6 +46,10 @@ describe('primary interview flow', () => {
     const row = await screen.findByRole('button', { name: /Open Two sum/ });
     fireEvent.click(row);
     expect(await screen.findByText(scorecard.summary)).toBeInTheDocument();
+    expect(screen.getByText('Earlier scorecard (unversioned)')).toBeInTheDocument();
+    const communication = screen.getByRole('heading', { name: 'Communication' }).closest('section')!;
+    expect(communication).toHaveTextContent('4 / 5');
+    expect(screen.queryByText(/Senior SWE coding rubric/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Review session' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Review session' }));
     expect(screen.getByLabelText('Code editor')).toHaveValue(problem.starterCode.python);
@@ -91,5 +95,69 @@ describe('primary interview flow', () => {
     render(<App api={api} />);
     await screen.findByRole('option', { name: /Two sum/ });
     await waitFor(() => expect(screen.getByLabelText('Duration')).toHaveValue('30'));
+  });
+});
+
+describe('evidence-based scorecard', () => {
+  async function openSaved(card: Scorecard) {
+    const { api } = fixture(card);
+    render(<App api={api} />);
+    fireEvent.click(screen.getByRole('button', { name: 'History' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Open Two sum/ }));
+    await screen.findByRole('heading', { name: 'A little reflection.' });
+  }
+
+  it('shows an unassessed category without inventing a zero or a score bar', async () => {
+    await openSaved({ ...scorecard, source: 'model', rubricVersion: 'senior-swe-v1', categories: [
+      { name: 'Complexity', score: null, feedback: 'Complexity was not discussed.', assistance: 'not_observed', evidence: [] }
+    ] });
+    const category = within(screen.getByRole('group', { name: 'Category scores' })).getByRole('heading', { name: 'Complexity' }).closest('section')!;
+    expect(within(category).getByText('Not assessed')).toBeInTheDocument();
+    expect(category).not.toHaveTextContent('/ 5');
+    expect(category).not.toHaveTextContent('0');
+    expect(within(category).queryByRole('meter')).not.toBeInTheDocument();
+  });
+
+  it('explains a versioned model score with assistance, source quotes and an expandable rubric', async () => {
+    await openSaved({ ...scorecard, source: 'model', rubricVersion: 'senior-swe-v1', categories: [
+      { name: 'Communication', score: 3, feedback: 'Explained the constraint after a neutral prompt.', assistance: 'prompted', evidence: [{ source: 'transcript', id: 'private-turn-id', quote: 'The input order matters.' }] },
+      { name: 'Testing', score: 2, feedback: 'Added a duplicate test with substantial help.', assistance: 'guided', evidence: [{ source: 'run', id: 'private-run-id', quote: '[0, 1]' }] },
+      { name: 'Coding', score: 4, feedback: 'Used clear names independently.', assistance: 'independent', evidence: [{ source: 'code', quote: 'seen_indices = {}' }] }
+    ] });
+    expect(screen.getByText(/Senior SWE coding rubric.*senior-swe-v1/)).toBeInTheDocument();
+    expect(screen.getByText(/Model assessment/)).toBeInTheDocument();
+    expect(screen.getByText('Neutral prompts')).toBeInTheDocument();
+    expect(screen.getByText('Substantial guidance')).toBeInTheDocument();
+    expect(screen.getByText('Independent')).toBeInTheDocument();
+    const communication = within(screen.getByRole('group', { name: 'Category scores' })).getByRole('heading', { name: 'Communication' }).closest('section')!;
+    expect(within(communication).getByRole('meter')).toHaveAttribute('aria-valuenow', '3');
+    expect(within(communication).getByText('Transcript')).toBeInTheDocument();
+    expect(within(communication).getByText('The input order matters.')).toBeInTheDocument();
+    expect(screen.getByText('[0, 1]')).toBeInTheDocument();
+    expect(screen.getByText('seen_indices = {}')).toBeInTheDocument();
+    expect(screen.queryByText(/private-turn-id|private-run-id/)).not.toBeInTheDocument();
+    const guideToggle = screen.getByText('How scores are assessed');
+    const guide = guideToggle.closest('details')!;
+    expect(guide).not.toHaveAttribute('open');
+    fireEvent.click(guideToggle);
+    expect(guide).toHaveAttribute('open');
+    for (const name of ['Communication', 'Problem solving', 'Coding', 'Testing', 'Complexity']) {
+      expect(within(guide).getByRole('heading', { name })).toBeInTheDocument();
+    }
+    for (const label of ['Significant gaps', 'Developing', 'Meets expectations', 'Strong', 'Exceptional']) {
+      expect(within(guide).getAllByText(label).length).toBeGreaterThan(0);
+    }
+  });
+
+  it.each([
+    ['offline', /Scripted offline practice.*no competence grades/i],
+    ['fallback', /Model assessment was unavailable.*no competence grades/i]
+  ] as const)('identifies %s scorecards so a local summary is not mistaken for a model grade', async (source, caveat) => {
+    await openSaved({ ...scorecard, source, rubricVersion: 'senior-swe-v1', categories: [
+      { name: 'Communication', score: null, feedback: 'Review your saved conversation.', assistance: 'not_observed', evidence: [] }
+    ] });
+    expect(screen.getByText(caveat)).toBeInTheDocument();
+    expect(screen.getByText('Not assessed')).toBeInTheDocument();
+    expect(screen.queryByRole('meter')).not.toBeInTheDocument();
   });
 });

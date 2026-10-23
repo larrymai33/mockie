@@ -43,13 +43,25 @@ export interface Problem {
 
 export type ScoreCategory = 'communication' | 'problem_solving' | 'coding' | 'testing' | 'complexity';
 
+export interface ScoreEvidence {
+  source: 'code' | 'transcript' | 'run';
+  /** Transcript entry ID or run job ID. Omitted for current code. */
+  id?: string;
+  quote: string;
+}
+
 export interface CategoryScore {
   key: ScoreCategory;
-  score: number;
+  /** Null means insufficient evidence, never a failing grade. */
+  score: number | null;
   feedback: string;
+  // Optional only for compatibility with previously saved scorecards.
+  evidence?: ScoreEvidence[];
+  assistance?: 'independent' | 'prompted' | 'guided' | 'not_observed';
 }
 
 export interface Scorecard {
+  rubricVersion?: 'senior-swe-v1';
   summary: string;
   categories: CategoryScore[];
   strengths: string[];

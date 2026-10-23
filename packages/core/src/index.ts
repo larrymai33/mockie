@@ -4,3 +4,4 @@ export * from './parsing.js';
 export * from './problems.js';
 export * from './prompts.js';
 export * from './offline.js';
+export * from './rubric.js';

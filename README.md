@@ -4,9 +4,27 @@ Mockie is a self-hosted coding interview room for one person. Pick a built-in pr
 
 ![Mockie interview room showing live code editing, sandboxed execution, an interviewer prompt, and the final scorecard.](./demo.gif)
 
-Offline mode uses a deterministic local practice partner. Online mode sends interview context through a private LiteLLM proxy using its `chatgpt/` subscription provider. Model failures leave the session usable; scoring falls back locally when necessary. Offline mode does not require model credentials, although initial image builds need internet access and browser speech recognition may use a remote service.
+Offline mode uses a deterministic local practice partner. Online mode sends interview context through a private LiteLLM proxy using its `chatgpt/` subscription provider. Model failures leave the session usable; if assessment fails, the saved session gets a local activity summary with unassessed categories. Offline mode does not require model credentials, although initial image builds need internet access and browser speech recognition may use a remote service.
 
 This is a trusted, single-user LAN application. There are no user accounts or application access controls. Anyone who can reach it can read sessions, change settings, and submit code. Use a dedicated VM as the outer boundary for running candidate code; do not publish the service directly to the internet.
+
+## Interviewer and scoring
+
+The connected interviewer is prompted to behave like a senior software engineer conducting a coding interview: establish requirements, listen to your approach, probe correctness and tradeoffs, and ask focused follow-ups about edge cases, tests, complexity, and maintainability. It should ask one useful question at a time, use questions to draw attention to bugs, and stay quiet while you make progress. Follow-ups use your current code, conversation, run output, and remaining time; they should not reveal the solution or turn the exercise into a system-design interview. This is prompt and policy tuning of your configured model, not model fine-tuning, and the model can still make mistakes.
+
+New scorecards use the versioned **`senior-swe-v1`** coding rubric. Each of the five categories has specific behavioral anchors for every score, available in **How scores are assessed** on the scorecard:
+
+| Category | Evidence considered |
+| --- | --- |
+| Communication | Clarifying assumptions, explaining decisions, responding to questions, and communicating uncertainty. |
+| Problem solving | Decomposing the task, comparing approaches, reasoning about correctness, and adapting to constraints. |
+| Coding | Correctness, readable structure and naming, handling boundaries, and diagnosing bugs. |
+| Testing | Choosing informative cases, checking expected results, interpreting failures, and testing fixes. |
+| Complexity | Defining input sizes, explaining time and space costs, and justifying tradeoffs. |
+
+The shared scale is **1 — Significant gaps; 2 — Developing; 3 — Meets expectations; 4 — Strong; 5 — Exceptional** for the observed coding exercise. Numeric assessments include short quotes from code, candidate conversation, or run output. Assistance is recorded as independent work, neutral prompts, or substantive guidance. Normal clarifying questions and neutral follow-ups do not automatically lower scores; substantive help informs the assessment of independence. Grades are practice feedback from a limited exercise, not a senior hiring verdict.
+
+When there is insufficient evidence, a category is **Not assessed** (`null`), with no zero score or bar. Silence alone, a short session, or a successful process exit does not establish competence. Offline mode is scripted and cannot assess solution quality: its scorecards contain activity summaries with no competence grades. The same applies to local fallback summaries when model assessment is unavailable. Earlier saved scorecards retain their original numbers and are explicitly labeled **Earlier scorecard (unversioned)**; they are not retroactively calibrated to this rubric.
 
 ## Architecture
 

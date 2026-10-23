@@ -3,7 +3,21 @@ export type Mode = 'offline' | 'online';
 export interface Problem { id: string; title: string; description: string; difficulty?: string; starterCode: Record<Language, string>; examples?: Array<{ input: string; output: string; explanation?: string }>; constraints?: string[] }
 export interface TranscriptEntry { id: string; role: 'candidate' | 'interviewer'; text: string; at: string }
 export interface RunResult { id: string; stdout: string; stderr: string; exitCode: number | null; durationMs?: number; timedOut?: boolean; truncated?: boolean; status?: string }
-export interface Scorecard { summary: string; overall?: number; categories: Array<{ name: string; score: number; feedback: string }>; strengths: string[]; improvements: string[]; source?: string }
+export interface Scorecard {
+  summary: string;
+  overall?: number;
+  categories: Array<{
+    name: string;
+    score: number | null;
+    feedback: string;
+    assistance?: 'independent' | 'prompted' | 'guided' | 'not_observed';
+    evidence?: Array<{ source: 'code' | 'transcript' | 'run'; id?: string; quote: string }>;
+  }>;
+  strengths: string[];
+  improvements: string[];
+  source?: string;
+  rubricVersion?: 'senior-swe-v1';
+}
 export interface Session { id: string; problem: Problem; language: Language; durationMinutes: number; mode: Mode; code: string; status: string; startedAt: string; endedAt?: string; transcript: TranscriptEntry[]; runs: RunResult[]; scorecard?: Scorecard }
 export interface StartOptions { problemId?: string; customProblem?: string; language: Language; durationMinutes: number; mode: Mode }
 export interface Settings { mode: Mode; model: string; baseUrl?: string; [key: string]: unknown }

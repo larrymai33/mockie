@@ -52,12 +52,19 @@ export class LiteLLMProvider implements InterviewProvider {
 
   async respond(context: InterviewContext): Promise<InterviewerDecision> {
     const text = await this.#request(buildInterviewPrompt(context));
-    return parseInterviewerDecision(text);
+    const decision = parseInterviewerDecision(text);
+    const normalize = (value: string): string => value.trim().replace(/\s+/g, " ").toLowerCase();
+    if (context.trigger !== "direct_message" && !context.candidateMessage?.trim()
+      && decision.action === "speak" && context.transcript.some(entry =>
+        entry.role === "interviewer" && normalize(entry.text) === normalize(decision.message))) {
+      return { action: "silent", message: "" };
+    }
+    return decision;
   }
 
   async score(context: InterviewContext): Promise<Scorecard> {
     const text = await this.#request(buildScorecardPrompt(context));
-    return parseScorecard(text) ?? createFallbackScorecard(context);
+    return parseScorecard(text, context) ?? createFallbackScorecard(context);
   }
 
   async #request(prompt: Prompt): Promise<string> {

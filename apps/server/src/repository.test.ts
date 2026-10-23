@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { SessionRepository } from "./repository.js";
+import type { Scorecard } from "@mockie/core";
 
 const directories: string[] = [];
 
@@ -76,5 +77,27 @@ describe("SessionRepository", () => {
     const reopened = new SessionRepository(path);
     expect(reopened.getSettings()).toMatchObject({ providerMode: "online", defaultDurationMinutes: 60 });
     reopened.close();
+  });
+
+  it("preserves rubric evidence and unassessed scores when reopening a completed session", () => {
+    const path = databasePath();
+    const first = new SessionRepository(path);
+    const session = first.createSession({ problem, language: "python", providerMode: "online", durationMinutes: 45 });
+    const card: Scorecard = {
+      source: "model", rubricVersion: "senior-swe-v1", summary: "The candidate clarified the contract.",
+      categories: [
+        { key: "communication", score: 3, feedback: "Clear clarification.", assistance: "independent", evidence: [{ source: "transcript", id: "message-1", quote: "Are the indices distinct?" }] },
+        ...(["problem_solving", "coding", "testing", "complexity"] as const).map(key => ({ key, score: null, feedback: "Not assessed.", assistance: "not_observed" as const, evidence: [] }))
+      ], strengths: [], improvements: ["Explain the approach."],
+    };
+    first.endSession(session.id, card);
+    first.close();
+    const reopened = new SessionRepository(path);
+    try {
+      expect(reopened.getSession(session.id)?.scorecard).toEqual(card);
+      expect(reopened.listSessions()[0]?.scorecard?.categories[1]?.score).toBeNull();
+    } finally {
+      reopened.close();
+    }
   });
 });

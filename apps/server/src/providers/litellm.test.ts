@@ -76,6 +76,55 @@ describe("LiteLLMProvider", () => {
     await expect(provider.respond(context)).rejects.toThrow("LiteLLM request failed (502)");
   });
 
+  it("suppresses repeated automatic follow-ups but still answers direct messages", async () => {
+    const message = "What trade-off are you considering?";
+    const provider = new LiteLLMProvider({
+      baseUrl: "http://litellm:4000", model: "chatgpt/test",
+      fetchImpl: async () => new Response(JSON.stringify({ output_text: JSON.stringify({ action: "speak", message }) }))
+    });
+    const repeatedContext = { ...context, transcript: [{ id: "q1", role: "interviewer" as const, text: message, createdAt: "2026-10-23T03:00:00Z" }] };
+    await expect(provider.respond({ ...repeatedContext, trigger: "post_edit_pause", candidateMessage: undefined }))
+      .resolves.toEqual({ action: "silent", message: "" });
+    await expect(provider.respond({ ...repeatedContext, trigger: "direct_message" }))
+      .resolves.toEqual({ action: "speak", message });
+  });
+
+  it("falls back without invented grades when the model supplies unsupported scoring evidence", async () => {
+    const card = {
+      rubricVersion: "senior-swe-v1", summary: "Strong candidate.",
+      categories: ["communication", "problem_solving", "coding", "testing", "complexity"].map(key => ({
+        key, score: 5, feedback: "Great work.", assistance: "independent",
+        evidence: [{ source: "transcript", id: "made-up", quote: "I proved correctness." }]
+      })), strengths: [], improvements: []
+    };
+    const provider = new LiteLLMProvider({
+      baseUrl: "http://litellm:4000", model: "chatgpt/test",
+      fetchImpl: async () => new Response(JSON.stringify({ output_text: JSON.stringify(card) }))
+    });
+    const result = await provider.score(context);
+    expect(result.source).toBe("fallback");
+    expect(result.categories.map(category => category.score)).toEqual([null, null, null, null, null]);
+  });
+
+  it("preserves a grounded model score and unassessed categories through Responses", async () => {
+    const candidateText = "I want to confirm that the two indices must be distinct.";
+    const scoringContext = { ...context, transcript: [{ id: "candidate-1", role: "candidate" as const, text: candidateText, createdAt: "2026-10-23T03:00:00Z" }] };
+    const card = {
+      rubricVersion: "senior-swe-v1", summary: "Requirements were clarified; implementation evidence is limited.",
+      categories: [
+        { key: "communication", score: 3, feedback: "Clarified a consequential requirement. Next, explain the approach.", assistance: "independent", evidence: [{ source: "transcript", id: "candidate-1", quote: candidateText }] },
+        ...["problem_solving", "coding", "testing", "complexity"].map(key => ({ key, score: null, feedback: "Not assessed: no relevant evidence yet.", assistance: "not_observed", evidence: [] }))
+      ], strengths: ["Clarified the contract."], improvements: ["Explain an approach before coding."]
+    };
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify({ output_text: JSON.stringify(card) })));
+    const provider = new LiteLLMProvider({ baseUrl: "http://litellm:4000", model: "chatgpt/test", fetchImpl });
+    const result = await provider.score(scoringContext);
+    expect(result).toEqual({ ...card, source: "model" });
+    const payload = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
+    expect(Object.keys(payload).sort()).toEqual(["input", "instructions", "model"]);
+    expect(JSON.parse(payload.input[0].content).transcript[0]).toMatchObject({ id: "candidate-1", text: candidateText });
+  });
+
   it("aborts a provider request that does not finish before its deadline", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockImplementation((_input, init) =>
       new Promise((_resolve, reject) => {
