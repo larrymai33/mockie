@@ -2,6 +2,8 @@
 
 Mockie is a self-hosted coding interview room for one person. Pick a built-in problem or paste your own, write Python or JavaScript, run it, and think aloud or type to an interviewer that follows your code without interrupting every edit. A timer, problem brief, editor, run output, transcript, and voice controls share one workspace. End the interview for a five-category scorecard, then reopen it from History.
 
+![Mockie interview room showing live code editing, sandboxed execution, an interviewer prompt, and the final scorecard.](./demo.gif)
+
 Offline mode uses a deterministic local practice partner. Online mode sends interview context through a private LiteLLM proxy using its `chatgpt/` subscription provider. Model failures leave the session usable; scoring falls back locally when necessary. Offline mode does not require model credentials, although initial image builds need internet access and browser speech recognition may use a remote service.
 
 This is a trusted, single-user LAN application. There are no user accounts or application access controls. Anyone who can reach it can read sessions, change settings, and submit code. Use a dedicated VM as the outer boundary for running candidate code; do not publish the service directly to the internet.
